@@ -1,19 +1,38 @@
 import logging
 import datetime
 import psycopg2
-from homeassistant.const import EVENT_STATE_CHANGED
+import voluptuous as vol
+from homeassistant.const import EVENT_STATE_CHANGED, CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD, CONF_NAME
+from homeassistant.helpers import config_validation as cv
 
 DOMAIN = "expenses_api"
 _LOGGER = logging.getLogger(__name__)
 
+CONFIG_SCHEMA = vol.Schema(
+    {
+        DOMAIN: vol.Schema(
+            {
+                vol.Required("db_host"): cv.string,
+                vol.Required("db_port", default=5432): cv.port,
+                vol.Required("db_name"): cv.string,
+                vol.Required("db_user"): cv.string,
+                vol.Required("db_pass"): cv.string,
+            }
+        )
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
 def setup(hass, config):
 
+    conf = config.get(DOMAIN, {})
+
     # Database config
-    DB_HOST = config.get("db_host")
-    DB_PORT = config.get("db_port")
-    DB_NAME = config.get("db_name")
-    DB_USER = config.get("db_user")
-    DB_PASS = config.get("db_pass")
+    DB_HOST = conf.get("db_host")
+    DB_PORT = conf.get("db_port")
+    DB_NAME = conf.get("db_name")
+    DB_USER = conf.get("db_user")
+    DB_PASS = conf.get("db_pass")
 
         # Debug output
     print(f"[Expenses API] DB_HOST={DB_HOST}, DB_PORT={DB_PORT}, DB_NAME={DB_NAME}, DB_USER={DB_USER}, DB_PASS={'set' if DB_PASS else 'None'}")
