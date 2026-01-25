@@ -15,6 +15,13 @@ def setup(hass, config):
     DB_USER = config.get("db_user")
     DB_PASS = config.get("db_pass")
 
+        # Debug output
+    _LOGGER.info("DB_HOST=%s", DB_HOST)
+    _LOGGER.info("DB_PORT=%s", DB_PORT)
+    _LOGGER.info("DB_NAME=%s", DB_NAME)
+    _LOGGER.info("DB_USER=%s", DB_USER)
+    _LOGGER.info("DB_PASS is %s characters", len(DB_PASS) if DB_PASS else "None")
+
     """Set up the Expenses API integration."""
 
     _LOGGER.info("🚀 expenses_api loaded")
