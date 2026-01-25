@@ -1,21 +1,20 @@
 import logging
 import datetime
 import psycopg2
-import json
 from homeassistant.const import EVENT_STATE_CHANGED
 
 DOMAIN = "expenses_api"
 _LOGGER = logging.getLogger(__name__)
 
-# Database config
-DB_HOST = config.get("db_host")
-DB_PORT = config.get("db_port")
-DB_NAME = config.get("db_name")
-DB_USER = config.get("db_user")
-DB_PASS = config.get("db_pass")
-
-
 def setup(hass, config):
+
+    # Database config
+    DB_HOST = config.get("db_host")
+    DB_PORT = config.get("db_port")
+    DB_NAME = config.get("db_name")
+    DB_USER = config.get("db_user")
+    DB_PASS = config.get("db_pass")
+
     """Set up the Expenses API integration."""
 
     _LOGGER.info("🚀 expenses_api loaded")
