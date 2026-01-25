@@ -1,0 +1,3 @@
+add_expense:
+  name: Add Expense
+  description: Adds an expense from dashboard helpers to the database

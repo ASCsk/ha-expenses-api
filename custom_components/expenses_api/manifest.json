@@ -1,0 +1,9 @@
+{
+    "domain": "expenses_api",
+    "name": "Expenses API",
+    "version": "0.1.0",
+    "iot_class": "local_polling",
+    "requirements": [
+        "psycopg2-binary"
+    ]
+}
