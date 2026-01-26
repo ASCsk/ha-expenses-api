@@ -241,6 +241,8 @@ def setup(hass, config):
 
             # Refresh latest expenses
             update_latest_expenses()
+            # Also update balances after adding an expense
+            update_balances()
 
         except Exception as e:
             _LOGGER.error("Failed to add expense: %s", e)
@@ -265,6 +267,37 @@ def setup(hass, config):
     # --- Register services ---
     hass.services.register(DOMAIN, "add_expense", handle_add_expense)
     hass.services.register(DOMAIN, "refresh_latest_expenses", lambda call: update_latest_expenses())
+
+    # --- Balances helper (follows same pattern as update_latest_expenses) ---
+    def update_balances():
+        """Query DB sums for `andre` and `nocas`, set HA input_number states and return totals."""
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COALESCE(SUM(andre),0), COALESCE(SUM(nocas),0) FROM expenses")
+                r = cur.fetchone()
+
+            andre_total = float(r[0] or 0.0)
+            nocas_total = float(r[1] or 0.0)
+
+            # Sync-safe set state values
+            hass.states.set("input_number.balance_andre", andre_total)
+            hass.states.set("input_number.balance_nocas", nocas_total)
+
+            # Also set an entity summarizing balances for quick checks
+            hass.states.set(
+                f"{DOMAIN}.balances",
+                "ok",
+                attributes={"andre": andre_total, "nocas": nocas_total},
+            )
+
+            _LOGGER.debug("Balances updated: andre=%s nocas=%s", andre_total, nocas_total)
+            return andre_total, nocas_total
+        except Exception as e:
+            _LOGGER.error("Failed to update balances: %s", e)
+            raise
+
+    # Register a service to refresh balances on demand
+    hass.services.register(DOMAIN, "refresh_balances", lambda call: update_balances())
 
     # Optional loaded state
     hass.states.set(f"{DOMAIN}.loaded", "true")
