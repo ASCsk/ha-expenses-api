@@ -33,8 +33,7 @@ def setup(hass, config):
     DB_NAME = conf.get("db_name")
     DB_USER = conf.get("db_user")
     DB_PASS = conf.get("db_pass")
-
-        # Debug output
+    # Debug output
     print(f"[Expenses API] DB_HOST={DB_HOST}, DB_PORT={DB_PORT}, DB_NAME={DB_NAME}, DB_USER={DB_USER}, DB_PASS={'set' if DB_PASS else 'None'}")
     """Set up the Expenses API integration."""
 
@@ -53,7 +52,7 @@ def setup(hass, config):
     except Exception as e:
         _LOGGER.error("Failed to connect to DB: %s", e)
         return False
-
+    
     # --- Helper to safely get states ---
     def safe_state(entity_id, default=None):
         s = hass.states.get(entity_id)
@@ -63,6 +62,7 @@ def setup(hass, config):
     def update_latest_expenses(event_time=None):
         try:
             paid_by = safe_state("input_select.filter_paid_by", "All")
+            paid_by_norm = (paid_by or "All").strip().lower()
             category = safe_state("input_select.filter_category", "All")
             start_date_str = safe_state("input_datetime.filter_start_date")
             end_date_str = safe_state("input_datetime.filter_end_date")
@@ -74,12 +74,15 @@ def setup(hass, config):
             if end_date_str:
                 end_date = datetime.datetime.fromisoformat(end_date_str.split(" ")[0]).date()
 
-            query = "SELECT id, description, amount, paid_by, category, date FROM expenses WHERE 1=1"
+            query = "SELECT id, date, description, category, cost, andre, helena FROM expenses WHERE 1=1"
             params = []
 
-            if paid_by != "All":
-                query += " AND paid_by = %s"
-                params.append(paid_by)
+            # filter by payer using signed columns: positive value indicates who paid
+            if paid_by_norm != "all":
+                if paid_by_norm == "andre":
+                    query += " AND andre > 0"
+                elif paid_by_norm == "helena":
+                    query += " AND helena > 0"
             if category != "All":
                 query += " AND category = %s"
                 params.append(category)
@@ -100,11 +103,12 @@ def setup(hass, config):
             expenses_list = [
                 {
                     "id": r[0],
-                    "description": r[1],
-                    "amount": float(r[2]) if r[2] is not None else 0.0,
-                    "paid_by": r[3],
-                    "category": r[4],
-                    "date": r[5].isoformat() if r[5] else None
+                    "date": r[1].isoformat() if r[1] else None,
+                    "description": r[2],
+                    "category": r[3],
+                    "cost": float(r[4]) if r[4] is not None else 0.0,
+                    "andre": float(r[5]) if len(r) > 5 and r[5] is not None else 0.0,
+                    "helena": float(r[6]) if len(r) > 6 and r[6] is not None else 0.0,
                 }
                 for r in rows
             ]
@@ -121,29 +125,112 @@ def setup(hass, config):
         except Exception as e:
             _LOGGER.error("Failed to update latest expenses: %s", e)
 
+    # --- Split helpers ---
+    def get_split_percentages():
+        """Return (andre_pct, helena_pct, total_pct).
+
+        Priority:
+        1. Read Home Assistant `input_number.split_andre` and `input_number.split_helena` (0-100)
+        2. Fall back to hardcoded defaults (60/40)
+
+        Returned percentages are in 0..1 range.
+        """
+        default_andre = 0.6
+        default_helena = 0.4
+
+        # Try Home Assistant input_numbers (0-100)
+        andre_state = safe_state("input_number.split_andre", None)
+        helena_state = safe_state("input_number.split_helena", None)
+
+        andre_pct = None
+        helena_pct = None
+
+        try:
+            if andre_state is not None:
+                andre_pct = float(andre_state) / 100.0
+        except (TypeError, ValueError):
+            andre_pct = None
+
+        try:
+            if helena_state is not None:
+                helena_pct = float(helena_state) / 100.0
+        except (TypeError, ValueError):
+            helena_pct = None
+
+        # If HA inputs missing, use defaults
+        if andre_pct is None:
+            andre_pct = default_andre
+        if helena_pct is None:
+            helena_pct = default_helena
+
+        total_pct = andre_pct + helena_pct
+        eps = 1e-9
+        if total_pct == 0:
+            andre_pct, helena_pct = default_andre, default_helena
+        else:
+            if abs(total_pct - 1.0) > eps:
+                _LOGGER.warning("Split percentages do not sum to 1 — normalizing")
+            andre_pct /= total_pct
+            helena_pct /= total_pct
+            total_pct = 1.0
+            
+        return andre_pct, helena_pct, total_pct
+
+    def compute_shares(cost, andre_pct, helena_pct, total_pct):
+        """Return (andre_share, helena_share) rounded to 2 decimals and adjusted for rounding drift."""
+        andre_share = round(cost * (andre_pct / total_pct), 2)
+        helena_share = round(cost * (helena_pct / total_pct), 2)
+        diff = round(cost - (andre_share + helena_share), 2)
+        if diff != 0:
+            andre_share = round(andre_share + diff, 2)
+        return andre_share, helena_share
+
+    
+
+    names = ['Andre', 'Helena']
     # --- Add Expense Service ---
     def handle_add_expense(call):
         try:
-            description = safe_state("input_text.expense_description", "")
-            amount = float(safe_state("input_number.expense_amount", 0))
-            paid_by = safe_state("input_select.expense_paid_by", "Unknown")
-            category = safe_state("input_select.expense_category", "Other")
             date_str = safe_state("input_datetime.expense_date")
+            description = safe_state("input_text.expense_description", "")
+            category = safe_state("input_select.expense_category", "Other")
+            cost = float(safe_state("input_number.expense_amount", 0))
+            paid_by = safe_state("input_select.expense_paid_by", "Unknown")
+            # split: get percentages and compute shares
+            andre_pct, helena_pct, total_pct = get_split_percentages()
+            andre_share, helena_share = compute_shares(cost, andre_pct, helena_pct, total_pct)
+            _LOGGER.debug("Computed shares: Andre=%s Helena=%s (cost=%s)", andre_share, helena_share, cost)
+            
 
             date_value = None
             if date_str:
                 date_value = datetime.datetime.fromisoformat(date_str.split(" ")[0]).date()
 
+            # determine signed values for `andre` and `helena` depending on who paid
+            paid_by_norm = (paid_by or "").strip().lower()
+            andre_val = None
+            helena_val = None
+            if paid_by_norm == "andre":
+                andre_val = andre_share
+                helena_val = -helena_share
+            elif paid_by_norm == "helena":
+                andre_val = -andre_share
+                helena_val = helena_share
+            else:
+                # unknown payer: store shares as positive values for both
+                andre_val = andre_share
+                helena_val = helena_share
+
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO expenses (description, amount, paid_by, category, date)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO expenses (description, cost, category, date, andre, helena)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     """,
-                    (description, amount, paid_by, category, date_value)
+                    (description, cost, category, date_value, andre_val, helena_val)
                 )
 
-            _LOGGER.info("Expense added: %s %.2f by %s", description, amount, paid_by)
+            _LOGGER.info("Expense added: %s %.2f by %s", description, cost, paid_by)
 
             # Clear inputs (use async_create_task to safely call async_set in sync context)
             hass.async_create_task(hass.states.async_set("input_text.expense_description", ""))
