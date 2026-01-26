@@ -232,12 +232,12 @@ def setup(hass, config):
 
             _LOGGER.info("Expense added: %s %.2f by %s", description, cost, paid_by)
 
-            # Clear inputs (use async_create_task to safely call async_set in sync context)
-            hass.async_create_task(hass.states.async_set("input_text.expense_description", ""))
-            hass.async_create_task(hass.states.async_set("input_number.expense_amount", 0))
-            hass.async_create_task(hass.states.async_set("input_select.expense_paid_by", paid_by))
-            hass.async_create_task(hass.states.async_set("input_select.expense_category", category))
-            hass.async_create_task(hass.states.async_set("input_datetime.expense_date", date_str))
+            # Clear inputs (sync-safe)
+            hass.states.set("input_text.expense_description", "")
+            hass.states.set("input_number.expense_amount", 0)
+            hass.states.set("input_select.expense_paid_by", paid_by)
+            hass.states.set("input_select.expense_category", category)
+            hass.states.set("input_datetime.expense_date", date_str)
 
             # Refresh latest expenses
             update_latest_expenses()
