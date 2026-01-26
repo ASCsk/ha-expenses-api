@@ -185,10 +185,56 @@ def setup(hass, config):
             andre_share = round(andre_share + diff, 2)
         return andre_share, helena_share
 
-    
+    def reset_input_fields():
+            hass.services.call(
+                "input_text",
+                "set_value",
+                {
+                    "entity_id": "input_text.expense_description",
+                    "value": ""
+                },
+                blocking=False
+            )
 
-    names = ['Andre', 'Helena']
-    # --- Add Expense Service ---
+            hass.services.call(
+                "input_number",
+                "set_value",
+                {
+                    "entity_id": "input_number.expense_amount",
+                    "value": 0.0
+                },
+                blocking=False
+            )
+            hass.services.call(
+                "input_select",
+                "select_option",
+                {
+                    "entity_id": "input_select.expense_paid_by",
+                    "option": paid_by
+                },
+                blocking=False
+            )
+
+            hass.services.call(
+                "input_select",
+                "select_option",
+                {
+                    "entity_id": "input_select.expense_category",
+                    "option": category
+                },
+                blocking=False
+            )
+            hass.services.call(
+                "input_datetime",
+                "set_datetime",
+                {
+                    "entity_id": "input_datetime.expense_date",
+                    "datetime": date_str
+                },
+                blocking=False
+            )
+
+
     def handle_add_expense(call):
         try:
             date_str = safe_state("input_datetime.expense_date")
@@ -206,7 +252,6 @@ def setup(hass, config):
             if date_str:
                 date_value = datetime.datetime.fromisoformat(date_str.split(" ")[0]).date()
 
-            # determine signed values for `andre` and `helena` depending on who paid
             paid_by_norm = (paid_by or "").strip().lower()
             andre_val = None
             helena_val = None
@@ -232,16 +277,8 @@ def setup(hass, config):
 
             _LOGGER.info("Expense added: %s %.2f by %s", description, cost, paid_by)
 
-            # Clear inputs (sync-safe)
-            hass.states.set("input_text.expense_description", "")
-            hass.states.set("input_number.expense_amount", 0)
-            hass.states.set("input_select.expense_paid_by", paid_by)
-            hass.states.set("input_select.expense_category", category)
-            hass.states.set("input_datetime.expense_date", date_str)
-
-            # Refresh latest expenses
+            reset_input_fields()
             update_latest_expenses()
-            # Also update balances after adding an expense
             update_balances()
 
         except Exception as e:
