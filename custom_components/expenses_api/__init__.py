@@ -273,25 +273,30 @@ def setup(hass, config):
         """Query DB sums for `andre` and `nocas`, set HA input_number states and return totals."""
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT COALESCE(SUM(andre),0), COALESCE(SUM(nocas),0) FROM expenses")
+                cur.execute("""
+                    SELECT 
+                        COALESCE(SUM(andre),0),
+                        COALESCE(SUM(helena),0)
+                    FROM expenses
+                """)
                 r = cur.fetchone()
 
             andre_total = float(r[0] or 0.0)
-            nocas_total = float(r[1] or 0.0)
+            helena_total = float(r[1] or 0.0)
 
             # Sync-safe set state values
             hass.states.set("input_number.balance_andre", andre_total)
-            hass.states.set("input_number.balance_nocas", nocas_total)
+            hass.states.set("input_number.balance_nocas", helena_total)
 
             # Also set an entity summarizing balances for quick checks
             hass.states.set(
                 f"{DOMAIN}.balances",
                 "ok",
-                attributes={"andre": andre_total, "nocas": nocas_total},
+                attributes={"andre": andre_total, "nocas": helena_total},
             )
 
-            _LOGGER.debug("Balances updated: andre=%s nocas=%s", andre_total, nocas_total)
-            return andre_total, nocas_total
+            _LOGGER.debug("Balances updated: andre=%s nocas=%s", andre_total, helena_total)
+            return andre_total, helena_total
         except Exception as e:
             _LOGGER.error("Failed to update balances: %s", e)
             raise
