@@ -277,9 +277,11 @@ def setup(hass, config):
 
             _LOGGER.info("Expense added: %s %.2f by %s", description, cost, paid_by)
 
-            reset_input_fields()
-            update_latest_expenses()
             update_balances()
+            update_latest_expenses()
+            reset_input_fields()
+            
+            
 
         except Exception as e:
             _LOGGER.error("Failed to add expense: %s", e)
