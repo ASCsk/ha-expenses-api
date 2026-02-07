@@ -209,16 +209,6 @@ def setup(hass, config):
                 "input_select",
                 "select_option",
                 {
-                    "entity_id": "input_select.expense_paid_by",
-                    "option": paid_by
-                },
-                blocking=False
-            )
-
-            hass.services.call(
-                "input_select",
-                "select_option",
-                {
                     "entity_id": "input_select.expense_category",
                     "option": category
                 },
@@ -262,9 +252,7 @@ def setup(hass, config):
                 andre_val = -andre_share
                 helena_val = helena_share
             else:
-                # unknown payer: store shares as positive values for both
-                andre_val = andre_share
-                helena_val = helena_share
+                raise ValueError(f"Invalid payer selected: {paid_by!r}")
 
             with conn.cursor() as cur:
                 cur.execute(
@@ -285,6 +273,16 @@ def setup(hass, config):
 
         except Exception as e:
             _LOGGER.error("Failed to add expense: %s", e)
+
+            hass.services.call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "Expenses API Error",
+                    "message": str(e),
+                    "notification_id": "expenses_api_error"
+                },
+            )
 
     # --- Initial fetch ---
     update_latest_expenses()
@@ -307,9 +305,9 @@ def setup(hass, config):
     hass.services.register(DOMAIN, "add_expense", handle_add_expense)
     hass.services.register(DOMAIN, "refresh_latest_expenses", lambda call: update_latest_expenses())
 
-    # --- Balances helper (follows same pattern as update_latest_expenses) ---
+    # --- Balances helper ---
     def update_balances():
-        """Query DB sums for `andre` and `nocas`, set HA input_number states and return totals."""
+        """Query DB sums for `andre` and `helena`, set HA input_number states and return totals."""
         try:
             with conn.cursor() as cur:
                 cur.execute("""
