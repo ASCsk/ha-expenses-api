@@ -2,7 +2,7 @@ import logging
 import datetime
 import psycopg2
 import voluptuous as vol
-from homeassistant.const import EVENT_STATE_CHANGED, CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD, CONF_NAME
+from homeassistant.const import EVENT_STATE_CHANGED, EVENT_HOMEASSISTANT_STARTED, CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD, CONF_NAME
 from homeassistant.helpers import config_validation as cv
 
 DOMAIN = "expenses_api"
@@ -322,8 +322,8 @@ def setup(hass, config):
             helena_total = float(r[1] or 0.0)
 
             # Sync-safe set state values
-            hass.states.set("input_number.balance_andre", andre_total)
-            hass.states.set("input_number.balance_nocas", helena_total)
+            hass.states.set("input_number.balance_andre", round(andre_total,2))
+            hass.states.set("input_number.balance_nocas", round(helena_total,2))
 
             # Also set an entity summarizing balances for quick checks
             hass.states.set(
@@ -338,10 +338,12 @@ def setup(hass, config):
             _LOGGER.error("Failed to update balances: %s", e)
             raise
 
-    # Register a service to refresh balances on demand
     hass.services.register(DOMAIN, "refresh_balances", lambda call: update_balances())
-
-    # Optional loaded state
     hass.states.set(f"{DOMAIN}.loaded", "true")
+
+    def on_ha_started(event):
+        update_balances()
+
+    hass.bus.listen_once(EVENT_HOMEASSISTANT_STARTED, on_ha_started)
 
     return True
