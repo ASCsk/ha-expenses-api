@@ -2,6 +2,7 @@ import logging
 import datetime
 import psycopg2
 import voluptuous as vol
+from decimal import Decimal, ROUND_HALF_UP
 from homeassistant.const import EVENT_STATE_CHANGED, EVENT_HOMEASSISTANT_STARTED, CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD, CONF_NAME
 from homeassistant.helpers import config_validation as cv
 
@@ -74,15 +75,13 @@ def setup(hass, config):
             if end_date_str:
                 end_date = datetime.datetime.fromisoformat(end_date_str.split(" ")[0]).date()
 
-            query = "SELECT id, date, description, category, cost, andre, helena FROM expenses WHERE 1=1"
+            query = "SELECT id, date, description, category, cost, andre, helena, paid_by FROM expenses WHERE 1=1"
             params = []
 
             # filter by payer using signed columns: positive value indicates who paid
             if paid_by_norm != "all":
-                if paid_by_norm == "andre":
-                    query += " AND andre > 0"
-                elif paid_by_norm == "helena":
-                    query += " AND helena > 0"
+                query += " AND LOWER(paid_by) = %s"
+                params.append(paid_by_norm)
             if category != "All":
                 query += " AND category = %s"
                 params.append(category)
@@ -109,6 +108,7 @@ def setup(hass, config):
                     "cost": float(r[4]) if r[4] is not None else 0.0,
                     "andre": float(r[5]) if len(r) > 5 and r[5] is not None else 0.0,
                     "helena": float(r[6]) if len(r) > 6 and r[6] is not None else 0.0,
+                    "paid_by": r[7],
                 }
                 for r in rows
             ]
@@ -178,14 +178,15 @@ def setup(hass, config):
 
     def compute_shares(cost, andre_pct, helena_pct, total_pct):
         """Return (andre_share, helena_share) rounded to 2 decimals and adjusted for rounding drift."""
-        andre_share = round(cost * (andre_pct / total_pct), 2)
-        helena_share = round(cost * (helena_pct / total_pct), 2)
-        diff = round(cost - (andre_share + helena_share), 2)
+        andre_share = (cost * Decimal(str(andre_pct / total_pct))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        helena_share = (cost * Decimal(str(helena_pct / total_pct))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        diff = cost - (andre_share + helena_share)
         if diff != 0:
-            andre_share = round(andre_share + diff, 2)
+            andre_share += diff
+
         return andre_share, helena_share
 
-    def reset_input_fields():
+    def reset_input_fields(category, date_str):
             hass.services.call(
                 "input_text",
                 "set_value",
@@ -224,13 +225,12 @@ def setup(hass, config):
                 blocking=False
             )
 
-
     def handle_add_expense(call):
         try:
             date_str = safe_state("input_datetime.expense_date")
             description = safe_state("input_text.expense_description", "")
             category = safe_state("input_select.expense_category", "Other")
-            cost = float(safe_state("input_number.expense_amount", 0))
+            cost = Decimal(str(safe_state("input_number.expense_amount", 0))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             paid_by = safe_state("input_select.expense_paid_by", "Unknown")
             # split: get percentages and compute shares
             andre_pct, helena_pct, total_pct = get_split_percentages()
@@ -246,28 +246,40 @@ def setup(hass, config):
             andre_val = None
             helena_val = None
             if paid_by_norm == "andre":
-                andre_val = andre_share
+                # Helena owes Andre her share
                 helena_val = -helena_share
+                andre_val = +helena_share
             elif paid_by_norm == "helena":
+                # Andre owes Helena his share
                 andre_val = -andre_share
-                helena_val = helena_share
+                helena_val = +andre_share
             else:
                 raise ValueError(f"Invalid payer selected: {paid_by!r}")
+            
+            andre_val = Decimal(andre_val).quantize(Decimal("0.01"))
+            helena_val = Decimal(helena_val).quantize(Decimal("0.01"))
+
+            if andre_val + helena_val != Decimal("0.00"):
+                raise RuntimeError(
+                    f"Ledger invariant violated: "
+                    f"andre={andre_val}, helena={helena_val}"
+    )
 
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO expenses (description, cost, category, date, andre, helena)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO expenses 
+                    (description, cost, category, date, andre, helena, paid_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (description, cost, category, date_value, andre_val, helena_val)
+                    (description, cost, category, date_value, andre_val, helena_val, paid_by_norm)
                 )
 
             _LOGGER.info("Expense added: %s %.2f by %s", description, cost, paid_by)
 
             update_balances()
             update_latest_expenses()
-            reset_input_fields()
+            reset_input_fields(category, date_str)
             
             
 
@@ -294,7 +306,7 @@ def setup(hass, config):
             "input_select.filter_paid_by",
             "input_select.filter_category",
             "input_datetime.filter_start_date",
-            "input_datetime/filter_end_date"
+            "input_datetime.filter_end_date"
         ]:
             update_latest_expenses()
 
@@ -321,9 +333,27 @@ def setup(hass, config):
             andre_total = float(r[0] or 0.0)
             helena_total = float(r[1] or 0.0)
 
+            net = round(andre_total, 2)
+
+            if net > 0:
+                summary = f"Helena owes Andre: €{abs(net):.2f}"
+            elif net < 0:
+                summary = f"Andre owes Helena: €{abs(net):.2f}"
+            else:
+                summary = "All settled up"
+
             # Sync-safe set state values
             hass.states.set("input_number.balance_andre", round(andre_total,2))
             hass.states.set("input_number.balance_nocas", round(helena_total,2))
+            hass.states.set(
+                f"{DOMAIN}.settlement",
+                summary,
+                attributes={
+                    "andre_balance": andre_total,
+                    "helena_balance": helena_total,
+                    "net": net
+                },
+)
 
             # Also set an entity summarizing balances for quick checks
             hass.states.set(
