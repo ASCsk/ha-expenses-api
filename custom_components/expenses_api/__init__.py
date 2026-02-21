@@ -79,7 +79,7 @@ def setup(hass, config):
 
             # filter by payer using signed columns: positive value indicates who paid
             if paid_by != "All":
-                query += " AND LOWER(paid_by) = %s"
+                query += " AND paid_by = %s"
                 params.append(paid_by.strip().lower())
             if category != "All":
                 query += " AND category = %s"
@@ -91,8 +91,7 @@ def setup(hass, config):
                 query += " AND date <= %s"
                 params.append(end_date)
 
-            query += " ORDER BY date DESC, id DESC LIMIT %s"
-            params.append(20)
+            query += " ORDER BY date DESC, id DESC"
 
             with conn.cursor() as cur:
                 cur.execute(query, tuple(params))
