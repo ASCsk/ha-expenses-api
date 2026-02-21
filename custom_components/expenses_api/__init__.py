@@ -79,7 +79,7 @@ def setup(hass, config):
             params = []
 
             # filter by payer using signed columns: positive value indicates who paid
-            if paid_by_norm != "all":
+            if paid_by_norm != "All":
                 query += " AND LOWER(paid_by) = %s"
                 params.append(paid_by_norm)
             if category != "All":
