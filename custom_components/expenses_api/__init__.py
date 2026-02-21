@@ -63,7 +63,6 @@ def setup(hass, config):
     def update_latest_expenses(event_time=None):
         try:
             paid_by = safe_state("input_select.filter_paid_by", "All")
-            paid_by_norm = (paid_by or "All").strip().lower()
             category = safe_state("input_select.filter_category", "All")
             start_date_str = safe_state("input_datetime.filter_start_date")
             end_date_str = safe_state("input_datetime.filter_end_date")
@@ -79,9 +78,9 @@ def setup(hass, config):
             params = []
 
             # filter by payer using signed columns: positive value indicates who paid
-            if paid_by_norm != "All":
+            if paid_by != "All":
                 query += " AND LOWER(paid_by) = %s"
-                params.append(paid_by_norm)
+                params.append(paid_by.strip().lower())
             if category != "All":
                 query += " AND category = %s"
                 params.append(category)
